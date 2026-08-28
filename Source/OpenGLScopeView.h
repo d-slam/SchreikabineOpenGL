@@ -331,6 +331,10 @@ private:
         juce::gl::glLineWidth(1.4f);
         drawLineBuffer(axisBuffer, juce::gl::GL_LINES, (int)axisVertices.size());
 
+        // Dark separation halo keeps the front Z=0 path readable over the mesh.
+        juce::gl::glBlendFunc(juce::gl::GL_SRC_ALPHA, juce::gl::GL_ONE_MINUS_SRC_ALPHA);
+        drawLine(0.0f, 0.015f, 0.005f, 0.92f, 5.0f);
+        juce::gl::glBlendFunc(juce::gl::GL_SRC_ALPHA, juce::gl::GL_ONE);
         drawGlowPoints(scale);
         drawLine(0.20f, 1.0f, 0.28f, 0.95f, 2.2f);
         drawLine(0.88f, 1.0f, 0.90f, 1.0f, 1.4f);
