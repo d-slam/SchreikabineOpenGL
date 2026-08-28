@@ -1,0 +1,32 @@
+{
+"version": 6,
+"cmakeMinimumRequired": {
+"major": 3,
+"minor": 22,
+"patch": 0
+},
+"configurePresets": [
+{
+"name": "windows-debug",
+"displayName": "Windows Debug",
+"description": "Windows 2026 Debug build",
+"generator": "Visual Studio 18 2026",
+"architecture": "x64",
+"binaryDir": "${sourceDir}/build"
+}
+],
+"buildPresets": [
+{
+"name": "debug",
+"displayName": "Debug",
+"configurePreset": "windows-debug",
+"configuration": "Debug"
+},
+{
+"name": "release",
+"displayName": "Release",
+"configurePreset": "windows-debug",
+"configuration": "Release"
+}
+]
+}

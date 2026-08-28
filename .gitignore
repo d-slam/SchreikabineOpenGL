@@ -1,0 +1,14 @@
+# CMake
+build/
+cmake-build-*/
+
+# Visual Studio
+.vs/
+
+# Build output
+*.pdb
+*.ilk
+*.obj
+*.exe
+*.dll
+*.lib
