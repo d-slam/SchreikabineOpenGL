@@ -49,7 +49,11 @@ public:
             12000.0f, 13000.0f, 14000.0f, 16000.0f, 17000.0f, 18000.0f
         };
 
-        const float axisY = bounds.getBottom() - axisOffsetPixels;
+        const float plotBottom = juce::jmax(1.0f, bounds.getHeight() - axisOffsetPixels - axisPlotGapPixels);
+        const float floorNdc = 1.0f - 2.0f * plotBottom / bounds.getHeight();
+        const float axisY = bounds.getY() + (1.0f - floorNdc * viewZoom) * bounds.getHeight() * 0.5f;
+        const float axisLeft = bounds.getCentreX() - bounds.getWidth() * viewZoom * 0.5f;
+        const float axisRight = bounds.getCentreX() + bounds.getWidth() * viewZoom * 0.5f;
 
         g.setColour(juce::Colour::fromFloatRGBA(0.24f, 1.0f, 0.42f, 0.07f));
         for (float f : fineFreqs)
@@ -60,7 +64,7 @@ public:
         }
 
         g.setColour(juce::Colour::fromFloatRGBA(0.26f, 1.0f, 0.44f, 0.48f));
-        g.drawHorizontalLine((int)axisY, bounds.getX(), bounds.getRight());
+        g.drawHorizontalLine((int)axisY, axisLeft, axisRight);
 
         struct LabelCandidate
         {
@@ -203,17 +207,15 @@ private:
         attribute float alphaIn;
         uniform float pointSize;
         uniform float pointMode;
-        uniform float cameraDistance;
-        uniform float perspective;
+        uniform float zoom;
         varying float vAlpha;
         void main() {
-            float depth = max(0.35, cameraDistance - position.z);
-            float viewX = position.x + position.z * 0.22;
-            float viewY = position.y - position.z * 0.42;
-            vec2 projected = vec2(viewX, viewY) * (perspective / depth);
+            float viewX = position.x + position.z * 0.38;
+            float viewY = position.y - position.z * 0.72;
+            vec2 projected = vec2(viewX, viewY) * zoom;
             gl_Position = vec4(projected, -position.z / 4.0, 1.0);
             gl_PointSize = pointSize;
-            vAlpha = pointMode > 0.5 ? alphaIn : 1.0;
+            vAlpha = alphaIn;
         }
     )glsl";
 
@@ -257,6 +259,7 @@ private:
         juce::gl::glGenBuffers(1, &lineBuffer);
         juce::gl::glGenBuffers(1, &particleBuffer);
         juce::gl::glGenBuffers(1, &meshBuffer);
+        juce::gl::glGenBuffers(1, &axisBuffer);
     }
 
     void openGLContextClosing() override
@@ -267,9 +270,12 @@ private:
             juce::gl::glDeleteBuffers(1, &particleBuffer);
         if (meshBuffer != 0)
             juce::gl::glDeleteBuffers(1, &meshBuffer);
+        if (axisBuffer != 0)
+            juce::gl::glDeleteBuffers(1, &axisBuffer);
         lineBuffer = 0;
         particleBuffer = 0;
         meshBuffer = 0;
+        axisBuffer = 0;
         alphaAttribute.reset();
         positionAttribute.reset();
         shader.reset();
@@ -303,13 +309,14 @@ private:
 
         uploadBuffer(lineBuffer, spectrumVertices);
         uploadBuffer(meshBuffer, meshVertices);
+        axisVertices = { { -1.0f, spectrumFloorNdc, 0.0f }, { 1.0f, spectrumFloorNdc, 0.0f } };
+        uploadBuffer(axisBuffer, axisVertices);
         buildParticleVertices();
         uploadBuffer(particleBuffer, particleVertices);
         juce::gl::glEnable(juce::gl::GL_BLEND);
         juce::gl::glBlendFunc(juce::gl::GL_SRC_ALPHA, juce::gl::GL_ONE);
         shader->use();
-        shader->setUniform("cameraDistance", 2.4f);
-        shader->setUniform("perspective", 2.4f);
+        shader->setUniform("zoom", viewZoom);
 
         if (!meshVertices.empty())
         {
@@ -319,6 +326,10 @@ private:
             shader->setUniform("colour", 0.10f, 0.75f, 0.28f, 0.42f);
             drawBuffer(meshBuffer, juce::gl::GL_LINES, (int)meshVertices.size());
         }
+
+        shader->setUniform("colour", 0.30f, 1.0f, 0.44f, 0.90f);
+        juce::gl::glLineWidth(1.4f);
+        drawLineBuffer(axisBuffer, juce::gl::GL_LINES, (int)axisVertices.size());
 
         drawGlowPoints(scale);
         drawLine(0.20f, 1.0f, 0.28f, 0.95f, 2.2f);
@@ -562,7 +573,7 @@ private:
         constexpr float minFreq = 20.0f;
         constexpr float maxFreq = 20000.0f;
         const float norm = (std::log10(freq) - std::log10(minFreq)) / (std::log10(maxFreq) - std::log10(minFreq));
-        return juce::jlimit(0.0f, width, norm * width);
+        return juce::jlimit(0.0f, width, width * (0.5f + (norm - 0.5f) * viewZoom));
     }
 
     void uploadBuffer(GLuint buffer, const std::vector<LineVertex>& vertices)
@@ -665,12 +676,14 @@ private:
     GLuint lineBuffer{0};
     GLuint particleBuffer{0};
     GLuint meshBuffer{0};
+    GLuint axisBuffer{0};
     juce::CriticalSection dataLock;
     std::vector<float> pendingSpectrum;
     std::vector<float> currentSpectrum;
     std::vector<LineVertex> spectrumVertices;
     std::vector<ParticleVertex> particleVertices;
     std::vector<ParticleVertex> meshVertices;
+    std::vector<LineVertex> axisVertices;
     std::vector<Particle> particles;
     struct SpectrumFrame { std::vector<float> values; double timeMs; };
     std::deque<SpectrumFrame> spectrumHistory;
@@ -683,6 +696,7 @@ private:
     float spectrumTopNdc{0.98f};
     static constexpr float axisOffsetPixels = 34.0f;
     static constexpr float axisPlotGapPixels = 6.0f;
+    static constexpr float viewZoom = 0.78f;
     static constexpr size_t maxHistoryFrames = 240;
     bool hasPendingData{false};
 
