@@ -373,10 +373,10 @@ public:
 		sld_meshBackFade.reset(new juce::Slider("slider_meshBackFade"));
 		addAndMakeVisible(sld_meshBackFade.get());
 		sld_meshBackFade->setSliderStyle(juce::Slider::SliderStyle::RotaryVerticalDrag);
-		sld_meshBackFade->setRange(0.0, 1.0, 0.01);
-		sld_meshBackFade->setValue((double)audioState.meshBackFade.load());
+		sld_meshBackFade->setRange(0.0, 100.0, 0.01);
+		sld_meshBackFade->setValue((double)audioState.meshBackFade.load() * 100.0);
 		sld_meshBackFade->setTextBoxStyle(juce::Slider::TextEntryBoxPosition::TextBoxBelow, false, elementWidth, labelHeight);
-		sld_meshBackFade->onValueChange = [this] { audioState.meshBackFade.store(static_cast<float>(sld_meshBackFade->getValue())); };
+		sld_meshBackFade->onValueChange = [this] { audioState.meshBackFade.store(static_cast<float>(sld_meshBackFade->getValue() / 100.0)); };
 		sld_meshBackFade->setBounds(elementWidth * 0, (labelHeight * 6) + (elementHeight * 6), elementWidth, elementHeight);
 		sld_meshBackFade->setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::lime);
 

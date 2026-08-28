@@ -510,7 +510,7 @@ private:
             const float depth = time * time;
             const float z = -depth * 1.45f;
             const float alpha = juce::jlimit(0.0f, 0.85f,
-                std::pow(1.0f - time, 1.0f + backFade * 5.0f));
+                std::pow(1.0f - time, 1.0f + backFade * 12.0f));
 
             const size_t count = juce::jmin(pointCount, frame.values.size());
             for (size_t i = 1; i < count; ++i)
@@ -546,7 +546,7 @@ private:
                     const float backFade = juce::jlimit(0.0f, 1.0f, audioState.meshBackFade.load());
                     return ParticleVertex { x, spectrumFloorNdc + level * (spectrumTopNdc - spectrumFloorNdc), z,
                         juce::jlimit(0.0f, 0.85f,
-                            std::pow(1.0f - time, 1.0f + backFade * 5.0f)) };
+                            std::pow(1.0f - time, 1.0f + backFade * 12.0f)) };
                 };
 
                 meshVertices.push_back(vertexFor(older));
