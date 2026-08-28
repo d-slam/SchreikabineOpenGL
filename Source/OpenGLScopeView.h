@@ -51,9 +51,9 @@ public:
 
         const float plotBottom = juce::jmax(1.0f, bounds.getHeight() - axisOffsetPixels - axisPlotGapPixels);
         const float floorNdc = 1.0f - 2.0f * plotBottom / bounds.getHeight();
-        const float axisY = bounds.getY() + (1.0f - floorNdc * viewZoom) * bounds.getHeight() * 0.5f;
-        const float axisLeft = bounds.getCentreX() - bounds.getWidth() * viewZoom * 0.5f;
-        const float axisRight = bounds.getCentreX() + bounds.getWidth() * viewZoom * 0.5f;
+        const float axisY = bounds.getY() + (1.0f - (floorNdc * viewZoom + viewOffsetY)) * bounds.getHeight() * 0.5f;
+        const float axisLeft = bounds.getCentreX() + (viewOffsetX - viewZoom) * bounds.getWidth() * 0.5f;
+        const float axisRight = bounds.getCentreX() + (viewOffsetX + viewZoom) * bounds.getWidth() * 0.5f;
 
         g.setColour(juce::Colour::fromFloatRGBA(0.24f, 1.0f, 0.42f, 0.07f));
         for (float f : fineFreqs)
@@ -183,17 +183,11 @@ public:
         }
 
         g.setColour(juce::Colour::fromFloatRGBA(0.0f, 0.0f, 0.0f, 0.45f));
-        g.fillRoundedRectangle(bounds.getRight() - 38.0f, axisY + 6.0f, 34.0f, 16.0f, 3.0f);
+        g.fillRoundedRectangle(axisRight - 38.0f, axisY + 6.0f, 34.0f, 16.0f, 3.0f);
         g.setColour(juce::Colour::fromFloatRGBA(0.72f, 1.0f, 0.80f, 0.98f));
         g.setFont(juce::Font(12.5f, juce::Font::bold));
-        g.drawText("Hz", (int)bounds.getRight() - 35, (int)axisY + 7, 28, 14, juce::Justification::centred);
+        g.drawText("Hz", (int)axisRight - 35, (int)axisY + 7, 28, 14, juce::Justification::centred);
 
-        const juce::Point<float> timeOrigin(bounds.getX(), axisY);
-        const juce::Point<float> timeEnd = timeOrigin.translated(82.0f, -52.0f);
-        g.setColour(juce::Colour::fromFloatRGBA(0.40f, 1.0f, 0.62f, 0.62f));
-        g.drawArrow(juce::Line<float>(timeOrigin, timeEnd), 1.2f, 5.0f, 5.0f);
-        g.setFont(juce::Font(11.5f, juce::Font::bold));
-        g.drawText("Zeit", (int)timeEnd.x + 4, (int)timeEnd.y - 18, 40, 16, juce::Justification::centred);
     }
     void resized() override {}
 
@@ -208,11 +202,13 @@ private:
         uniform float pointSize;
         uniform float pointMode;
         uniform float zoom;
+        uniform float viewOffsetX;
+        uniform float viewOffsetY;
         varying float vAlpha;
         void main() {
             float viewX = position.x + position.z * 0.38;
             float viewY = position.y - position.z * 0.72;
-            vec2 projected = vec2(viewX, viewY) * zoom;
+            vec2 projected = vec2(viewX, viewY) * zoom + vec2(viewOffsetX, viewOffsetY);
             gl_Position = vec4(projected, -position.z / 4.0, 1.0);
             gl_PointSize = pointSize;
             vAlpha = alphaIn;
@@ -317,6 +313,8 @@ private:
         juce::gl::glBlendFunc(juce::gl::GL_SRC_ALPHA, juce::gl::GL_ONE);
         shader->use();
         shader->setUniform("zoom", viewZoom);
+        shader->setUniform("viewOffsetX", viewOffsetX);
+        shader->setUniform("viewOffsetY", viewOffsetY);
 
         if (!meshVertices.empty())
         {
@@ -577,7 +575,7 @@ private:
         constexpr float minFreq = 20.0f;
         constexpr float maxFreq = 20000.0f;
         const float norm = (std::log10(freq) - std::log10(minFreq)) / (std::log10(maxFreq) - std::log10(minFreq));
-        return juce::jlimit(0.0f, width, width * (0.5f + (norm - 0.5f) * viewZoom));
+        return juce::jlimit(0.0f, width, width * (0.5f + (norm - 0.5f) * viewZoom + viewOffsetX * 0.5f));
     }
 
     void uploadBuffer(GLuint buffer, const std::vector<LineVertex>& vertices)
@@ -700,7 +698,9 @@ private:
     float spectrumTopNdc{0.98f};
     static constexpr float axisOffsetPixels = 34.0f;
     static constexpr float axisPlotGapPixels = 6.0f;
-    static constexpr float viewZoom = 0.78f;
+    static constexpr float viewZoom = 0.92f;
+    static constexpr float viewOffsetX = 0.08f;
+    static constexpr float viewOffsetY = -0.18f;
     static constexpr size_t maxHistoryFrames = 240;
     bool hasPendingData{false};
 
