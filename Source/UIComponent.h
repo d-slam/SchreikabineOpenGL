@@ -370,6 +370,23 @@ public:
 		lbl_particleRenderMode->setJustificationType(juce::Justification::centredLeft);
 		lbl_particleRenderMode->setBounds(elementWidth * 6, (labelHeight * 4) + (elementHeight * 4), elementWidth * 2, 20);
 
+		sld_meshBackFade.reset(new juce::Slider("slider_meshBackFade"));
+		addAndMakeVisible(sld_meshBackFade.get());
+		sld_meshBackFade->setSliderStyle(juce::Slider::SliderStyle::RotaryVerticalDrag);
+		sld_meshBackFade->setRange(0.0, 1.0, 0.01);
+		sld_meshBackFade->setValue((double)audioState.meshBackFade.load());
+		sld_meshBackFade->setTextBoxStyle(juce::Slider::TextEntryBoxPosition::TextBoxBelow, false, elementWidth, labelHeight);
+		sld_meshBackFade->onValueChange = [this] { audioState.meshBackFade.store(static_cast<float>(sld_meshBackFade->getValue())); };
+		sld_meshBackFade->setBounds(elementWidth * 0, (labelHeight * 6) + (elementHeight * 6), elementWidth, elementHeight);
+		sld_meshBackFade->setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::lime);
+
+		lbl_meshBackFade.reset(new juce::Label("label_meshBackFade"));
+		addAndMakeVisible(lbl_meshBackFade.get());
+		lbl_meshBackFade->setText("mesh back fade", juce::NotificationType::dontSendNotification);
+		lbl_meshBackFade->setColour(juce::Label::outlineColourId, juce::Colours::lime);
+		lbl_meshBackFade->setJustificationType(juce::Justification::centred);
+		lbl_meshBackFade->attachToComponent(sld_meshBackFade.get(), false);
+
 	}
 
 	~UIComponent()
@@ -388,6 +405,7 @@ public:
 		sld_particleSpawnStep, lbl_particleSpawnStep = nullptr;
 		sld_particleMaxCount, lbl_particleMaxCount = nullptr;
 		cmb_particleRenderMode, lbl_particleRenderMode = nullptr;
+		sld_meshBackFade, lbl_meshBackFade = nullptr;
 
 		sld_gain, lbl_gain = nullptr;
 		sld_glow, lbl_glow = nullptr;
@@ -439,6 +457,8 @@ public:
 	std::unique_ptr<juce::Label> lbl_particleMaxCount;
 	std::unique_ptr<juce::ComboBox> cmb_particleRenderMode;
 	std::unique_ptr<juce::Label> lbl_particleRenderMode;
+	std::unique_ptr<juce::Slider> sld_meshBackFade;
+	std::unique_ptr<juce::Label> lbl_meshBackFade;
 
 	// gain control
 	std::unique_ptr<juce::Slider> sld_gain;

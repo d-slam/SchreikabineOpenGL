@@ -49,6 +49,7 @@ struct AudioState
 	std::atomic<int> particleSpawnStep{ 10 };
 	std::atomic<int> particleMaxCount{ 50000 };
 	std::atomic<bool> particleVisibilityTestMode{ false };
+	std::atomic<float> meshBackFade{ 0.92f };
 
 	// global gain for display / processing (in dB)
 	std::atomic<float> gain_dB{ 60.0f };

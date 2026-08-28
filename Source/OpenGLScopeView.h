@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "AudioState.h"
+#include <deque>
 
 class OpenGLScopeView final : public juce::Component, private juce::OpenGLRenderer
 {
@@ -182,22 +183,35 @@ public:
         g.setColour(juce::Colour::fromFloatRGBA(0.72f, 1.0f, 0.80f, 0.98f));
         g.setFont(juce::Font(12.5f, juce::Font::bold));
         g.drawText("Hz", (int)bounds.getRight() - 35, (int)axisY + 7, 28, 14, juce::Justification::centred);
+
+        const juce::Point<float> timeOrigin(bounds.getX(), axisY);
+        const juce::Point<float> timeEnd = timeOrigin.translated(82.0f, -52.0f);
+        g.setColour(juce::Colour::fromFloatRGBA(0.40f, 1.0f, 0.62f, 0.62f));
+        g.drawArrow(juce::Line<float>(timeOrigin, timeEnd), 1.2f, 5.0f, 5.0f);
+        g.setFont(juce::Font(11.5f, juce::Font::bold));
+        g.drawText("Zeit", (int)timeEnd.x + 4, (int)timeEnd.y - 18, 40, 16, juce::Justification::centred);
     }
     void resized() override {}
 
 private:
-    struct LineVertex { float x; float y; };
-    struct ParticleVertex { float x; float y; float alpha; };
-    struct Particle { float x; float y; float vy; float alpha; };
+    struct LineVertex { float x; float y; float z; };
+    struct ParticleVertex { float x; float y; float z; float alpha; };
+    struct Particle { float x; float y; float vy; float alpha; float age; };
 
     static constexpr const char* vertexShader = R"glsl(
-        attribute vec2 position;
+        attribute vec3 position;
         attribute float alphaIn;
         uniform float pointSize;
         uniform float pointMode;
+        uniform float cameraDistance;
+        uniform float perspective;
         varying float vAlpha;
         void main() {
-            gl_Position = vec4(position, 0.0, 1.0);
+            float depth = max(0.35, cameraDistance - position.z);
+            float viewX = position.x + position.z * 0.22;
+            float viewY = position.y - position.z * 0.42;
+            vec2 projected = vec2(viewX, viewY) * (perspective / depth);
+            gl_Position = vec4(projected, -position.z / 4.0, 1.0);
             gl_PointSize = pointSize;
             vAlpha = pointMode > 0.5 ? alphaIn : 1.0;
         }
@@ -242,6 +256,7 @@ private:
         juce::gl::glEnable(juce::gl::GL_PROGRAM_POINT_SIZE);
         juce::gl::glGenBuffers(1, &lineBuffer);
         juce::gl::glGenBuffers(1, &particleBuffer);
+        juce::gl::glGenBuffers(1, &meshBuffer);
     }
 
     void openGLContextClosing() override
@@ -250,8 +265,11 @@ private:
             juce::gl::glDeleteBuffers(1, &lineBuffer);
         if (particleBuffer != 0)
             juce::gl::glDeleteBuffers(1, &particleBuffer);
+        if (meshBuffer != 0)
+            juce::gl::glDeleteBuffers(1, &meshBuffer);
         lineBuffer = 0;
         particleBuffer = 0;
+        meshBuffer = 0;
         alphaAttribute.reset();
         positionAttribute.reset();
         shader.reset();
@@ -265,7 +283,11 @@ private:
         const int height = juce::jmax(1, juce::roundToInt((float)getHeight() * scale));
         juce::gl::glViewport(0, 0, width, height);
         juce::gl::glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        juce::gl::glClearDepth(1.0);
+        juce::gl::glEnable(juce::gl::GL_DEPTH_TEST);
+        juce::gl::glDepthFunc(juce::gl::GL_LEQUAL);
         juce::gl::glClear(juce::gl::GL_COLOR_BUFFER_BIT);
+        juce::gl::glClear(juce::gl::GL_DEPTH_BUFFER_BIT);
 
         if (shader == nullptr || positionAttribute == nullptr)
             return;
@@ -274,16 +296,29 @@ private:
         syncVisualParams();
         updateSpectrumVerticesAndSpawn(width, height, scale);
         updateParticles(height, scale);
+        buildMeshVertices();
 
         if (spectrumVertices.empty())
             return;
 
         uploadBuffer(lineBuffer, spectrumVertices);
+        uploadBuffer(meshBuffer, meshVertices);
         buildParticleVertices();
         uploadBuffer(particleBuffer, particleVertices);
         juce::gl::glEnable(juce::gl::GL_BLEND);
         juce::gl::glBlendFunc(juce::gl::GL_SRC_ALPHA, juce::gl::GL_ONE);
         shader->use();
+        shader->setUniform("cameraDistance", 2.4f);
+        shader->setUniform("perspective", 2.4f);
+
+        if (!meshVertices.empty())
+        {
+            shader->setUniform("pointMode", 0.0f);
+            shader->setUniform("particleHardMode", 0.0f);
+            shader->setUniform("pointSize", 1.0f);
+            shader->setUniform("colour", 0.10f, 0.75f, 0.28f, 0.42f);
+            drawBuffer(meshBuffer, juce::gl::GL_LINES, (int)meshVertices.size());
+        }
 
         drawGlowPoints(scale);
         drawLine(0.20f, 1.0f, 0.28f, 0.95f, 2.2f);
@@ -313,6 +348,9 @@ private:
         if (!hasPendingData) return;
 
         currentSpectrum = pendingSpectrum;
+        spectrumHistory.push_back({ currentSpectrum, juce::Time::getMillisecondCounterHiRes() });
+        while (spectrumHistory.size() > maxHistoryFrames)
+            spectrumHistory.pop_front();
         spectrumDirty = true;
         hasPendingData = false;
     }
@@ -355,7 +393,7 @@ private:
             const float x = currentSpectrum.size() > 1 ? (float)i / (float)(currentSpectrum.size() - 1) : 0.0f;
             const float level = juce::jlimit(0.0f, 1.0f, currentSpectrum[i]);
             const float yNdc = spectrumFloorNdc + level * (spectrumTopNdc - spectrumFloorNdc);
-            spectrumVertices.push_back({x * 2.0f - 1.0f, yNdc});
+            spectrumVertices.push_back({x * 2.0f - 1.0f, yNdc, 0.0f});
         }
 
         if (!spectrumDirty || width <= 0 || height <= 0)
@@ -384,6 +422,7 @@ private:
             p.y = spectrumVertices[i].y;
             p.vy = (initVyPx * (0.8f + particleRandom.nextFloat() * 0.4f)) * pxToNdcY;
             p.alpha = 1.0f;
+            p.age = 0.0f;
             particles.push_back(p);
         }
     }
@@ -404,8 +443,9 @@ private:
 
         const float pxToNdcY = 2.0f / (float)juce::jmax(1, height);
         const float gravity = -audioState.particleGravity.load() * pxToNdcY;
-        const float fadeRate = juce::jmax(0.0f, audioState.particleFadeRate.load());
+        const float fadeRate = juce::jmax(0.0f, audioState.particleFadeRate.load()) * 0.12f;
         const float lowerClipNdc = spectrumFloorNdc - (2.0f * scale / (float)juce::jmax(1, height));
+        constexpr float timeHistorySeconds = 3.5f;
 
         for (size_t i = 0; i < particles.size();)
         {
@@ -413,8 +453,9 @@ private:
             p.vy += gravity * dt;
             p.y += p.vy * dt;
             p.alpha -= fadeRate * dt;
+            p.age += dt;
 
-            if (p.alpha <= 0.0f || p.y < lowerClipNdc || p.y > 1.1f)
+            if (p.alpha <= 0.0f || p.age >= timeHistorySeconds || p.y < lowerClipNdc || p.y > 1.1f)
             {
                 particles[i] = particles.back();
                 particles.pop_back();
@@ -432,9 +473,85 @@ private:
         particleVertices.reserve(particles.size());
         for (const auto& p : particles)
         {
-            if (p.y < spectrumFloorNdc)
+            constexpr float timeHistorySeconds = 3.5f;
+            const float time = juce::jlimit(0.0f, 1.0f, p.age / timeHistorySeconds);
+            const float depth = time * time;
+
+            // Isometric projection: older samples recede diagonally along the time axis.
+            const float timeZ = -depth * 1.45f;
+            const float temporalAlpha = 1.0f - juce::jlimit(0.0f, 1.0f, time * 0.92f);
+
+            if (p.y < spectrumFloorNdc || p.x < -1.1f || p.x > 1.1f)
                 continue;
-            particleVertices.push_back({p.x, p.y, juce::jlimit(0.08f, 1.0f, p.alpha)});
+            particleVertices.push_back({p.x, p.y, timeZ,
+                juce::jlimit(0.03f, 1.0f, p.alpha * temporalAlpha)});
+        }
+    }
+
+    void buildMeshVertices()
+    {
+        meshVertices.clear();
+        if (spectrumHistory.size() < 2)
+            return;
+
+        constexpr double timeHistorySeconds = 3.5;
+        const double nowMs = juce::Time::getMillisecondCounterHiRes();
+        const float backFade = juce::jlimit(0.0f, 1.0f, audioState.meshBackFade.load());
+        const size_t pointCount = currentSpectrum.size();
+        if (pointCount < 2)
+            return;
+
+        meshVertices.reserve(spectrumHistory.size() * pointCount * 4);
+        for (const auto& frame : spectrumHistory)
+        {
+            const float age = (float)juce::jlimit(0.0, timeHistorySeconds,
+                (nowMs - frame.timeMs) * 0.001);
+            const float time = age / (float)timeHistorySeconds;
+            const float depth = time * time;
+            const float z = -depth * 1.45f;
+            const float alpha = juce::jlimit(0.0f, 0.85f,
+                std::pow(1.0f - time, 1.0f + backFade * 5.0f));
+
+            const size_t count = juce::jmin(pointCount, frame.values.size());
+            for (size_t i = 1; i < count; ++i)
+            {
+                const float x0 = (float)(i - 1) / (float)(pointCount - 1) * 2.0f - 1.0f;
+                const float x1 = (float)i / (float)(pointCount - 1) * 2.0f - 1.0f;
+                const float level0 = juce::jlimit(0.0f, 1.0f, frame.values[i - 1]);
+                const float level1 = juce::jlimit(0.0f, 1.0f, frame.values[i]);
+                const float y0 = spectrumFloorNdc + level0 * (spectrumTopNdc - spectrumFloorNdc);
+                const float y1 = spectrumFloorNdc + level1 * (spectrumTopNdc - spectrumFloorNdc);
+                meshVertices.push_back({ x0, y0, z, alpha });
+                meshVertices.push_back({ x1, y1, z, alpha });
+            }
+        }
+
+        for (size_t i = 0; i < pointCount; i += 4)
+        {
+            for (size_t frameIndex = 1; frameIndex < spectrumHistory.size(); ++frameIndex)
+            {
+                const auto& older = spectrumHistory[frameIndex - 1];
+                const auto& newer = spectrumHistory[frameIndex];
+                if (i >= older.values.size() || i >= newer.values.size())
+                    continue;
+
+                const float x = (float)i / (float)(pointCount - 1) * 2.0f - 1.0f;
+                const auto vertexFor = [&](const SpectrumFrame& frame)
+                {
+                    const float age = (float)juce::jlimit(0.0, timeHistorySeconds,
+                        (nowMs - frame.timeMs) * 0.001);
+                    const float time = age / (float)timeHistorySeconds;
+                    const float z = -(time * time) * 1.45f;
+                    const float level = juce::jlimit(0.0f, 1.0f, frame.values[i]);
+                    const float backFade = juce::jlimit(0.0f, 1.0f, audioState.meshBackFade.load());
+                    return ParticleVertex { x, spectrumFloorNdc + level * (spectrumTopNdc - spectrumFloorNdc), z,
+                        juce::jlimit(0.0f, 0.85f,
+                            std::pow(1.0f - time, 1.0f + backFade * 5.0f)) };
+                };
+
+                meshVertices.push_back(vertexFor(older));
+                meshVertices.push_back(vertexFor(newer));
+            }
         }
     }
 
@@ -506,7 +623,7 @@ private:
     {
         juce::gl::glBindBuffer(juce::gl::GL_ARRAY_BUFFER, buffer);
         juce::gl::glEnableVertexAttribArray(positionAttribute->attributeID);
-        juce::gl::glVertexAttribPointer(positionAttribute->attributeID, 2, juce::gl::GL_FLOAT,
+        juce::gl::glVertexAttribPointer(positionAttribute->attributeID, 3, juce::gl::GL_FLOAT,
             juce::gl::GL_FALSE, sizeof(LineVertex), nullptr);
         if (alphaAttribute != nullptr && alphaAttribute->attributeID >= 0)
         {
@@ -522,7 +639,7 @@ private:
     {
         juce::gl::glBindBuffer(juce::gl::GL_ARRAY_BUFFER, buffer);
         juce::gl::glEnableVertexAttribArray(positionAttribute->attributeID);
-        juce::gl::glVertexAttribPointer(positionAttribute->attributeID, 2, juce::gl::GL_FLOAT,
+        juce::gl::glVertexAttribPointer(positionAttribute->attributeID, 3, juce::gl::GL_FLOAT,
             juce::gl::GL_FALSE, sizeof(ParticleVertex), nullptr);
         if (alphaAttribute != nullptr && alphaAttribute->attributeID >= 0)
         {
@@ -545,12 +662,16 @@ private:
     std::unique_ptr<juce::OpenGLShaderProgram::Attribute> alphaAttribute;
     GLuint lineBuffer{0};
     GLuint particleBuffer{0};
+    GLuint meshBuffer{0};
     juce::CriticalSection dataLock;
     std::vector<float> pendingSpectrum;
     std::vector<float> currentSpectrum;
     std::vector<LineVertex> spectrumVertices;
     std::vector<ParticleVertex> particleVertices;
+    std::vector<ParticleVertex> meshVertices;
     std::vector<Particle> particles;
+    struct SpectrumFrame { std::vector<float> values; double timeMs; };
+    std::deque<SpectrumFrame> spectrumHistory;
     juce::Random particleRandom;
     bool spectrumDirty{false};
     double lastFrameTimeMs{0.0};
@@ -560,6 +681,7 @@ private:
     float spectrumTopNdc{0.98f};
     static constexpr float axisOffsetPixels = 34.0f;
     static constexpr float axisPlotGapPixels = 6.0f;
+    static constexpr size_t maxHistoryFrames = 240;
     bool hasPendingData{false};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenGLScopeView)
