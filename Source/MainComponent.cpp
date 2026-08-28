@@ -150,6 +150,24 @@ void MainComponent::resized()
 
 bool MainComponent::keyPressed(const juce::KeyPress& key)
 {
+	if (key.getTextCharacter() == 'f' || key.getTextCharacter() == 'F')
+	{
+		if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
+			juce::Desktop::getInstance().setKioskModeComponent(
+				juce::Desktop::getInstance().getKioskModeComponent() != nullptr ? nullptr : window);
+
+		return true;
+	}
+
+	if (key == juce::KeyPress::escapeKey)
+	{
+		if (juce::Desktop::getInstance().getKioskModeComponent() != nullptr)
+		{
+			juce::Desktop::getInstance().setKioskModeComponent(nullptr);
+			return true;
+		}
+	}
+
 	if (key.getTextCharacter() == 'm' || key.getTextCharacter() == 'M')
 	{
 		uiVisible = !uiVisible;
