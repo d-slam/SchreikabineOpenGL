@@ -480,10 +480,12 @@ private:
             // Isometric projection: older samples recede diagonally along the time axis.
             const float timeZ = -depth * 1.45f;
             const float temporalAlpha = 1.0f - juce::jlimit(0.0f, 1.0f, time * 0.92f);
+            const float particleX = p.x - timeZ * 0.22f;
+            const float particleY = p.y + timeZ * 0.42f;
 
             if (p.y < spectrumFloorNdc || p.x < -1.1f || p.x > 1.1f)
                 continue;
-            particleVertices.push_back({p.x, p.y, timeZ,
+            particleVertices.push_back({particleX, particleY, timeZ,
                 juce::jlimit(0.03f, 1.0f, p.alpha * temporalAlpha)});
         }
     }
