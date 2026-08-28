@@ -700,7 +700,7 @@ private:
     static constexpr float axisPlotGapPixels = 6.0f;
     static constexpr float viewZoom = 0.92f;
     static constexpr float viewOffsetX = 0.08f;
-    static constexpr float viewOffsetY = -0.18f;
+    static constexpr float viewOffsetY = -0.10f;
     static constexpr size_t maxHistoryFrames = 240;
     bool hasPendingData{false};
 
